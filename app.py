@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 
 st.set_page_config(page_title="팀스파르타 수강생 대시보드", layout="wide", page_icon="🎓")
 
@@ -51,6 +52,20 @@ hr { border-color: #e8eaf6 !important; }
 .upload-guide p { font-size: 1rem; line-height: 1.7; }
 </style>
 """, unsafe_allow_html=True)
+
+
+# ── 서울 날씨 API ─────────────────────────────────────────────────────────────
+@st.cache_data(ttl=600)
+def get_seoul_weather():
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=37.5665&longitude=126.9780"
+        "&current_weather=true&hourly=temperature_2m"
+        "&timezone=Asia%2FSeoul&forecast_days=1"
+    )
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ── 사이드바: 파일 업로드 ─────────────────────────────────────────────────────
@@ -122,6 +137,49 @@ st.markdown(
     f'<p class="dash-subtitle">수강생 {len(df):,}명 · 마스터 {len(master_df):,}행 × 학습활동 {len(activity_df):,}행 병합 완료</p>',
     unsafe_allow_html=True,
 )
+
+# ── 서울 날씨 섹션 ────────────────────────────────────────────────────────────
+try:
+    w = get_seoul_weather()
+    cur_temp = w["current_weather"]["temperature"]
+    windspeed = w["current_weather"]["windspeed"]
+    wdf = pd.DataFrame({
+        "시간": pd.to_datetime(w["hourly"]["time"]),
+        "기온(°C)": w["hourly"]["temperature_2m"],
+    })
+    wdf["시간표시"] = wdf["시간"].dt.strftime("%H시")
+
+    wcol1, wcol2 = st.columns([1, 3])
+    with wcol1:
+        st.markdown(f"""
+        <div class="section-card" style="text-align:center;padding:28px 16px;">
+            <div class="section-title">🌡️ 서울 현재 기온</div>
+            <div style="font-size:3rem;font-weight:900;color:#6366f1;line-height:1.1;">{cur_temp}°C</div>
+            <div style="font-size:0.85rem;color:#7a7a9d;margin-top:8px;">💨 풍속 {windspeed} km/h</div>
+        </div>
+        """, unsafe_allow_html=True)
+    with wcol2:
+        st.markdown('<div class="section-card">', unsafe_allow_html=True)
+        st.markdown('<p class="section-title">📈 오늘 서울 시간별 기온</p>', unsafe_allow_html=True)
+        fig_w = px.line(wdf, x="시간표시", y="기온(°C)", markers=True, height=150)
+        fig_w.update_traces(
+            line=dict(color="#6366f1", width=2.5),
+            marker=dict(size=5, color="#6366f1"),
+        )
+        fig_w.update_layout(
+            plot_bgcolor="white", paper_bgcolor="white",
+            margin=dict(t=5, b=5, l=10, r=10),
+            xaxis=dict(title="", tickangle=-45, tickfont=dict(size=10), tickmode="array",
+                       tickvals=wdf["시간표시"][::3].tolist()),
+            yaxis=dict(title="°C", showgrid=True, gridcolor="#f0f0f8"),
+            font=dict(family="Segoe UI", size=11),
+        )
+        st.plotly_chart(fig_w, use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+except Exception:
+    st.warning("날씨 정보를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.")
+
+st.markdown("<br>", unsafe_allow_html=True)
 
 # ── 필터 ──────────────────────────────────────────────────────────────────────
 fc1, fc2, fc3, _ = st.columns([1, 1, 1, 1])
